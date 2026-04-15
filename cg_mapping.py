@@ -79,6 +79,14 @@ class CGMapping:
                         chain_protein_mode = 1
                     assert chain_protein_mode == 1
 
+                if res.name not in map_def.bead_atom_selection:
+                    warnings.warn(
+                        f"Skipping unsupported protein residue '{res.name}' in chain {chain.index}",
+                        RuntimeWarning,
+                    )
+                    last_backbone_idx = None
+                    continue
+
                 idx_mapping = {a.name: a.index for a in res.atoms}
                 bead_mapping = map_def.bead_atom_selection[res.name]
 
