@@ -11,26 +11,12 @@ from torchmd.systems import System
 
 # from torchmd.forcefields.forcefield import ForceField
 from module.external_nn import ExternalNN, ParametersNN
+from module.frame_utils import split_frame_indices
 from module.torchmd import tagged_forcefield
 
 # from simulate import CalcWrapper
 
 # adapted from https://github.com/torchmd/torchmd-cg/blob/master/torchmd_cg/utils/make_deltaforces.py
-
-
-def _split_frame_indices(frames: list[int], n_workers: int) -> list[list[int]]:
-    n = len(frames)
-    if n_workers <= 1 or n <= 1:
-        return [frames]
-    n_workers = min(n_workers, n)
-    q, r = divmod(n, n_workers)
-    out: list[list[int]] = []
-    idx = 0
-    for w in range(n_workers):
-        take = q + (1 if w < r else 0)
-        out.append(frames[idx : idx + take])
-        idx += take
-    return out
 
 
 def _classical_prior_chunk_worker(
@@ -166,7 +152,7 @@ class DeltaForces:
                 assert len(pot) == 1
                 self.prior_energies[i] += pot[0]
         else:
-            chunks = _split_frame_indices(frames_list, effective_workers)
+            chunks = split_frame_indices(frames_list, effective_workers)
             box_arg = self._box_npz_path
             tasks = [
                 (
