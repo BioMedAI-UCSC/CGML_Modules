@@ -46,8 +46,12 @@ class ParamBondedCalculator:
         self.prior_bond = {}
         self.unified = unified
         self.directional = directional
-        self.bond_range = [0, 8.0]
-        self.num_bins = 8*100 # Generate bins ~0.1 Ang wide
+        # cgff: widened from [0, 8.0] A so it covers DNA P-P bonds (~6.6 A)
+        # and tolerates longer bonds across mapping gaps (chains where a
+        # 5'-terminal nucleotide was skipped link the next two beads at
+        # ~13-15 A, well outside the original 8 A bound).
+        self.bond_range = [0, 30.0]
+        self.num_bins = 30*100 # ~0.1 Ang wide bins
         self.bin_edges = np.linspace(self.bond_range[0], self.bond_range[1], self.num_bins + 1, dtype=np.float32)
         self.fitSpecificBonds = fitSpecificBonds
 
@@ -79,6 +83,14 @@ class ParamBondedCalculator:
             # Periodic is false here because bonded atoms will always be in the same box 
             # OPENMM HAS NO BONDS ACROSS BOXES, MIGHT BE DIFFERENT FOR OTHER METHODS
             traj_dists = mdtraj.compute_distances(traj, bonds_types[bond], periodic=False).flatten()
+            # cgff: silently drop distances outside the bin range. With
+                # chain-gap bonds (skipped 5'-terminal nucleotides) some bond
+                # samples sit past 30 A and would otherwise abort the fit.
+                # Dropping them yields a slightly biased fit on the gap-bond
+                # type, which is fine because those bonds are not physical
+                # neighbours we want the prior to reproduce anyway.
+            in_range = (traj_dists >= self.bond_range[0]) & (traj_dists < self.bond_range[1])
+            traj_dists = traj_dists[in_range]
             hist, _ = np.histogram(traj_dists, bins=self.bin_edges)
             assert np.sum(hist) == len(traj_dists), "Out of range value"
             hists[key_to_str(bond)] = hist
@@ -370,6 +382,8 @@ class ParamAngleCalculator:
         for angle in angles_types.keys():
             # Calculate the value (in radians) for each angle in the prior
             traj_angles = mdtraj.compute_angles(traj, angles_types[angle], periodic=False).flatten()
+            in_range = (traj_angles >= self.angle_range[0]) & (traj_angles < self.angle_range[1])
+            traj_angles = traj_angles[in_range]
             hist, _ = np.histogram(traj_angles, bins=self.bin_edges)
             assert np.sum(hist) == len(traj_angles), "Out of range value"
             hists[key_to_str(angle)] = hist

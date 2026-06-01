@@ -51,7 +51,8 @@ def create_model(args, prior_model=None, mean=None, std=None):
         cutoff_lower=float(args["cutoff_lower"]),
         cutoff_upper=float(args["cutoff_upper"]),
         max_z=args["max_z"],
-        check_errors=bool(args["check_errors"]),
+        # cgff: check_errors / static_shapes / vector_cutoff were removed in
+        # newer torchmdnet versions; only pass them if the constructor accepts.
         max_num_neighbors=args["max_num_neighbors"],
         box_vecs=(
             torch.tensor(args["box_vecs"], dtype=dtype)

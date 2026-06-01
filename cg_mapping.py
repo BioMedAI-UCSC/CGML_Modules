@@ -56,31 +56,62 @@ class CGMapping:
 
         self.cg_topology = mdtraj.Topology()
 
+        # cgff DNA extension: a chain qualifies if it has either protein or
+        # nucleic residues, AND the map_def supplies entries for the residue
+        # type. We track residue eligibility per-residue so a chain like
+        # protein-then-ions is still processed.
+        def _residue_supported(res):
+            return res.name in map_def.bead_atom_selection
+
         for chain in topology.chains:
             last_backbone_idx = None
 
-            if not any([r.is_protein for r in chain.residues]):
-                continue # Skip water/ligand/ion chains
+            if not any(_residue_supported(r) for r in chain.residues):
+                continue # Skip chains the map_def cannot handle (waters, ligands, etc.)
 
             result_chain = self.cg_topology.add_chain()
 
-            # Initially 0 when we haven't seen a protein residue
-            # Becomes 1 with the first protein residue
-            # Then 2 if we see a non-protein residue
-            # This is done ensure the chain is contiguous while still allowing e.g. an ion at the end of a chain
-            chain_protein_mode = 0
+            # Initially 0 when we haven't seen a mappable residue
+            # Becomes 1 with the first mappable residue
+            # Then 2 if we see a non-mappable residue
+            # This ensures the chain is contiguous while still allowing e.g. an ion at the end of a chain
+            chain_mappable_mode = 0
             for res in chain.residues:
-                if not res.is_protein:
-                    if chain_protein_mode == 1:
-                        chain_protein_mode = 2
-                    continue # Skip non-protein residues
+                if not _residue_supported(res):
+                    if chain_mappable_mode == 1:
+                        chain_mappable_mode = 2
+                    continue # Skip residues the map_def doesn't know
                 else:
-                    if chain_protein_mode == 0:
-                        chain_protein_mode = 1
-                    assert chain_protein_mode == 1
+                    if chain_mappable_mode == 0:
+                        chain_mappable_mode = 1
+                    assert chain_mappable_mode == 1
 
                 idx_mapping = {a.name: a.index for a in res.atoms}
                 bead_mapping = map_def.bead_atom_selection[res.name]
+
+                # cgff DNA extension: pre-validate that every required atom
+                # exists in this residue. If any is missing (e.g., 5'-
+                # terminal nucleotides have no P), skip the residue cleanly
+                # WITHOUT mutating the cg_topology.
+                resolved_beads: list[list[int]] = []
+                skip_residue = False
+                for bead in bead_mapping:
+                    bead_idx = []
+                    for atom in bead:
+                        if atom not in idx_mapping:
+                            warnings.warn(
+                                f"CGMapping: residue {res} missing atom {atom!r}; "
+                                f"skipping this residue's beads.",
+                                RuntimeWarning,
+                            )
+                            skip_residue = True
+                            break
+                        bead_idx.append(idx_mapping[atom])
+                    if skip_residue:
+                        break
+                    resolved_beads.append(bead_idx)
+                if skip_residue:
+                    continue
 
                 first_bead_idx = self.cg_topology.n_atoms
                 # Determine index of this residue's last backbone bead
@@ -97,14 +128,7 @@ class CGMapping:
                 self.bead_mass.extend(map_def.bead_masses[res.name])
                 self.embeddings.extend(map_def.bead_embeddings[res.name])
 
-                for bead in bead_mapping:
-                    bead_idx = []
-                    for atom in bead:
-                        if atom not in idx_mapping:
-                            # FIXME: The martini mappings seem to have extra atoms (possibly to handle different naming schemes?)
-                            raise RuntimeError(f"Missing atom: {res}, {atom}")
-                        else:
-                            bead_idx.append(idx_mapping[atom])
+                for bead_idx in resolved_beads:
 
                     self.src_idx.append(bead_idx)
                     # FIXME: Should use OpenMM masses not mdtraj's
