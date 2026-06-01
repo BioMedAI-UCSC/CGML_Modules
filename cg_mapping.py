@@ -181,6 +181,20 @@ class CGMapping:
         """Map all atom positions to CG forces"""
         return self._do_mapping(aa_positions, self.pos_weights)
 
+    def cg_weights(self, aa_weights):
+        """Map per-atom sample weights to per-bead sample weights.
+
+        Input shape: (n_frames, n_aa_atoms). Output shape: (n_frames, n_cg_beads).
+        Per-bead value is the mean of the contributing atoms' weights so the
+        result stays on the same order of magnitude as the input.
+        """
+        n_frames = aa_weights.shape[0]
+        n_cg_beads = len(self.src_idx)
+        out = np.zeros((n_frames, n_cg_beads), dtype=np.float32)
+        for bead_idx, atom_indices in enumerate(self.src_idx):
+            out[:, bead_idx] = np.mean(aa_weights[:, atom_indices], axis=1)
+        return out
+
     def _do_mapping(self, aa_input, mapping_weights):
         # Apply a weighted mapping to the aa_input (positions or forces)
         num_beads = len(self.src_idx)
